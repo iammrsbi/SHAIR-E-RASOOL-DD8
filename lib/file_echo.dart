@@ -1,4 +1,5 @@
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -21,156 +22,182 @@ class _FileEchoScreenState extends State<FileEchoScreen> {
 
   String? inputPath;
   String? outputPath;
-  String fileName = 'No file selected';
+  String fileName = 'कोई ऑडियो फाइल नहीं चुनी गई';
 
-  double delayTime = 200;
-  double feedback = 4;
-  double effectLevel = 5;
+  double effectLevel = 0.70;
+  double feedback = 0.45;
+  double delayTime = 250;
 
-  bool processing = false;
-  bool playing = false;
+  bool isPlaying = false;
+  bool isProcessing = false;
 
-  Future<void> chooseFile() async {
+  StreamSubscription<PlayerState>? playerSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+
+    playerSubscription = player.playerStateStream.listen((state) {
+      if (!mounted) return;
+
+      setState(() {
+        isPlaying = state.playing;
+      });
+    });
+  }
+
+  Future<void> pickAudioFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['mp3', 'wav', 'mp4'],
+        allowMultiple: false,
       );
 
       if (result == null || result.files.isEmpty) return;
 
-      final selected = result.files.single;
+      final path = result.files.single.path;
 
-      if (selected.path == null) {
-        showMessage('File path nahi mila. Dobara select karein.');
+      if (path == null || !File(path).existsSync()) {
+        showMessage('यह फाइल नहीं खुल सकी। दूसरी फाइल चुनें।');
         return;
       }
 
       await player.stop();
 
       setState(() {
-        inputPath = selected.path;
-        fileName = selected.name;
+        inputPath = path;
         outputPath = null;
-        playing = false;
+        fileName = result.files.single.name;
+        isPlaying = false;
       });
 
-      showMessage('File selected successfully');
+      await player.setFilePath(path);
+
+      showMessage('फाइल सफलतापूर्वक चुनी गई');
     } catch (e) {
-      showMessage('File error: $e');
+      showMessage('फाइल खोलने में समस्या: $e');
     }
   }
 
   Future<void> playPause() async {
     if (inputPath == null && outputPath == null) {
-      showMessage('Pehle audio file select karein');
+      showMessage('पहले ऑडियो फाइल चुनें');
       return;
     }
 
     try {
       if (player.playing) {
         await player.pause();
-        setState(() => playing = false);
       } else {
-        if (player.processingState == ProcessingState.idle ||
-            player.processingState == ProcessingState.completed) {
-          await player.setFilePath(outputPath ?? inputPath!);
+        if (player.processingState == ProcessingState.completed) {
+          await player.seek(Duration.zero);
         }
-
-        setState(() => playing = true);
-        player.play();
+        unawaited(player.play());
       }
     } catch (e) {
-      showMessage('Playback error: $e');
+      showMessage('Playback में समस्या: $e');
     }
   }
 
   Future<void> stopAudio() async {
     await player.stop();
-    setState(() => playing = false);
+    if (!mounted) return;
+
+    setState(() {
+      isPlaying = false;
+    });
   }
 
-  Future<void> processEcho() async {
+  Future<void> makeEcho() async {
     if (inputPath == null) {
-      showMessage('Pehle MP3, WAV ya MP4 select karein');
+      showMessage('पहले MP3, WAV या MP4 फाइल चुनें');
       return;
     }
 
-    if (processing) return;
+    if (isProcessing) return;
 
-    setState(() => processing = true);
+    setState(() {
+      isProcessing = true;
+    });
 
     try {
       await player.stop();
-      setState(() => playing = false);
 
       final directory = await getApplicationDocumentsDirectory();
 
-      final output = 
-          '${directory.path}/SHAIR_E_RASOOL_ECHO_${DateTime.now().millisecondsSinceEpoch}.mp3';
+      final outputFile =
+          '${directory.path}/echo_${DateTime.now().millisecondsSinceEpoch}.mp3';
 
       final delay = delayTime.round();
-      final fb = (feedback / 10).clamp(0.1, 0.8);
-      final level = (effectLevel / 10).clamp(0.1, 1.0);
+      final decay = feedback.clamp(0.0, 0.90);
+      final inputGain = effectLevel.clamp(0.0, 1.0);
 
-      final filter =
-          'aecho=$level:0.9:$delay|${delay * 2}|${delay * 3}:$fb|${fb * 0.65}|${fb * 0.4}';
+      final secondDelay = delay * 2;
+      final secondDecay = decay * 0.70;
 
-      final session = await FFmpegKit.executeWithArguments([
+      final echoFilter =
+          'aecho=$inputGain:0.9:$delay|$secondDelay:$decay|$secondDecay';
+
+      final arguments = [
         '-y',
         '-i',
         inputPath!,
         '-vn',
         '-af',
-        filter,
+        echoFilter,
         '-codec:a',
         'libmp3lame',
         '-q:a',
         '2',
-        output,
-      ]);
+        outputFile,
+      ];
+
+      final session =
+          await FFmpegKit.executeWithArguments(arguments);
 
       final returnCode = await session.getReturnCode();
 
       if (ReturnCode.isSuccess(returnCode) &&
-          await File(output).exists()) {
-        setState(() => outputPath = output);
-        await player.setFilePath(output);
+          File(outputFile).existsSync()) {
+        setState(() {
+          outputPath = outputFile;
+        });
 
-        showMessage('Echo MP3 successfully ready!');
+        await player.setFilePath(outputFile);
+
+        showMessage('Echo तैयार हो गया!');
       } else {
-        final logs = await session.getLogs();
-        final errorText = logs
-            .map((log) => log.getMessage())
-            .take(4)
-            .join('\n');
-
-        showMessage('Echo processing failed: $errorText');
+        final logs = await session.getOutput();
+        showMessage('Echo नहीं बन पाया। फाइल या फॉर्मेट जाँचें।');
+        debugPrint('FFmpeg error: $logs');
       }
     } catch (e) {
-      showMessage('Processing error: $e');
+      showMessage('Echo बनाने में समस्या: $e');
     } finally {
       if (mounted) {
-        setState(() => processing = false);
+        setState(() {
+          isProcessing = false;
+        });
       }
     }
   }
 
-  Future<void> shareAudio() async {
-    if (outputPath == null) {
-      showMessage('Pehle Echo MP3 banayein');
+  Future<void> shareEcho() async {
+    if (outputPath == null || !File(outputPath!).existsSync()) {
+      showMessage('पहले Echo तैयार करें');
       return;
     }
 
     try {
       await SharePlus.instance.share(
         ShareParams(
+          text: 'SHAIR-E-RASOOL DD-8 - Echo Audio',
           files: [XFile(outputPath!)],
-          text: 'SHAIR-E-RASOOL DD-8 Echo Audio',
         ),
       );
     } catch (e) {
-      showMessage('Share error: $e');
+      showMessage('Share करने में समस्या: $e');
     }
   }
 
@@ -178,59 +205,77 @@ class _FileEchoScreenState extends State<FileEchoScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFF174B35),
+      ),
     );
   }
 
-  Widget controlSlider(
-    String title,
-    double value,
-    double min,
-    double max,
-    ValueChanged<double> onChanged,
-  ) {
+  Widget controlSlider({
+    required String title,
+    required String valueText,
+    required double value,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '$title: ${value.toStringAsFixed(1)}',
-          style: const TextStyle(
-            color: Color(0xFFFFD76A),
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              valueText,
+              style: const TextStyle(
+                color: Colors.amber,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
         Slider(
           value: value,
           min: min,
           max: max,
-          activeColor: const Color(0xFF39FF14),
+          activeColor: Colors.amber,
+          inactiveColor: Colors.white24,
           onChanged: onChanged,
         ),
       ],
     );
   }
 
-  Widget actionButton(
-    String title,
-    IconData icon,
-    VoidCallback? action,
-  ) {
+  Widget actionButton({
+    required String title,
+    required IconData icon,
+    required VoidCallback? onTap,
+    Color color = const Color(0xFF17633F),
+  }) {
     return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: ElevatedButton(
-          onPressed: action,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF164D19),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 15),
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, color: Colors.white),
+        label: Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
           ),
-          child: Column(
-            children: [
-              Icon(icon),
-              const SizedBox(height: 5),
-              Text(title),
-            ],
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          padding: const EdgeInsets.symmetric(
+            vertical: 14,
+            horizontal: 8,
           ),
         ),
       ),
@@ -239,6 +284,7 @@ class _FileEchoScreenState extends State<FileEchoScreen> {
 
   @override
   void dispose() {
+    playerSubscription?.cancel();
     player.dispose();
     super.dispose();
   }
@@ -246,200 +292,242 @@ class _FileEchoScreenState extends State<FileEchoScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF06140D),
+      backgroundColor: const Color(0xFF071D18),
       appBar: AppBar(
+        backgroundColor: const Color(0xFF0C3828),
+        foregroundColor: Colors.white,
         title: const Text(
-          'FILE ECHO',
-          style: TextStyle(color: Color(0xFFFFD76A)),
-        ),
-        backgroundColor: const Color(0xFF101512),
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Color(0xFF06140D),
-              Color(0xFF102C20),
-              Color(0xFF06140D),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+          'SHAIR-E-RASOOL DD-8',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 17,
           ),
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const Icon(
-                  Icons.graphic_eq,
-                  color: Color(0xFF39FF14),
-                  size: 75,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+
+              const Icon(
+                Icons.graphic_eq,
+                color: Colors.amber,
+                size: 65,
+              ),
+
+              const SizedBox(height: 8),
+
+              const Text(
+                'FILE ECHO',
+                style: TextStyle(
+                  color: Colors.amber,
+                  fontSize: 27,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
                 ),
-                const SizedBox(height: 15),
-                const Text(
-                  'SHAIR-E-RASOOL DD-8',
-                  style: TextStyle(
-                    color: Color(0xFFFFD76A),
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF103B2B),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.amber),
                 ),
-                const SizedBox(height: 25),
-
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: const Color(0xEE101511),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(
-                      color: const Color(0xFFB99A42),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.audio_file,
-                        color: Colors.greenAccent,
-                        size: 40,
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        fileName,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      ElevatedButton.icon(
-                        onPressed: chooseFile,
-                        icon: const Icon(Icons.folder_open),
-                        label: const Text('SELECT MP3 / WAV / MP4'),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                Container(
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    color: const Color(0xEE101511),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(
-                      color: const Color(0xFFB99A42),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      controlSlider(
-                        'E.LEVEL',
-                        effectLevel,
-                        0,
-                        10,
-                        (v) => setState(() => effectLevel = v),
-                      ),
-                      controlSlider(
-                        'F.BACK',
-                        feedback,
-                        0,
-                        10,
-                        (v) => setState(() => feedback = v),
-                      ),
-                      controlSlider(
-                        'D.TIME (ms)',
-                        delayTime,
-                        50,
-                        3200,
-                        (v) => setState(() => delayTime = v),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                Row(
+                child: Column(
                   children: [
-                    actionButton(
-                      'PLAY',
-                      Icons.play_arrow,
-                      playPause,
+                    const Icon(
+                      Icons.audio_file,
+                      color: Colors.amber,
+                      size: 40,
                     ),
-                    actionButton(
-                      'PAUSE',
-                      Icons.pause,
-                      player.playing ? playPause : null,
+                    const SizedBox(height: 10),
+                    Text(
+                      fileName,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                      ),
                     ),
-                    actionButton(
-                      'STOP',
-                      Icons.stop,
-                      stopAudio,
+                    const SizedBox(height: 15),
+                    ElevatedButton.icon(
+                      onPressed:
+                          isProcessing ? null : pickAudioFile,
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('SELECT AUDIO / VIDEO'),
+                    ),
+                    const SizedBox(height: 5),
+                    const Text(
+                      'Supported: MP3 • WAV • MP4',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
+              ),
 
-                const SizedBox(height: 15),
+              const SizedBox(height: 22),
 
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: processing || inputPath == null
-                        ? null
-                        : processEcho,
-                    icon: processing
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Icon(Icons.graphic_eq),
-                    label: Text(
-                      processing
-                          ? 'PROCESSING ECHO...'
-                          : 'APPLY ECHO & SAVE MP3',
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF103B2B),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'ECHO CONTROL',
+                      style: TextStyle(
+                        color: Colors.amber,
+                        fontSize: 19,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF176522),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.all(18),
+                    const SizedBox(height: 18),
+
+                    controlSlider(
+                      title: 'E.LEVEL',
+                      valueText:
+                          '${(effectLevel * 100).round()}%',
+                      value: effectLevel,
+                      min: 0,
+                      max: 1,
+                      onChanged: (value) {
+                        setState(() => effectLevel = value);
+                      },
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    controlSlider(
+                      title: 'F.BACK',
+                      valueText:
+                          '${(feedback * 100).round()}%',
+                      value: feedback,
+                      min: 0,
+                      max: 0.90,
+                      onChanged: (value) {
+                        setState(() => feedback = value);
+                      },
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    controlSlider(
+                      title: 'D.TIME',
+                      valueText: '${delayTime.round()} ms',
+                      value: delayTime,
+                      min: 50,
+                      max: 1000,
+                      onChanged: (value) {
+                        setState(() => delayTime = value);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 22),
+
+              Row(
+                children: [
+                  actionButton(
+                    title: isPlaying ? 'PAUSE' : 'PLAY',
+                    icon: isPlaying
+                        ? Icons.pause
+                        : Icons.play_arrow,
+                    onTap: playPause,
+                  ),
+                  const SizedBox(width: 10),
+                  actionButton(
+                    title: 'STOP',
+                    icon: Icons.stop,
+                    color: const Color(0xFF8B2929),
+                    onTap: stopAudio,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 15),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: isProcessing ? null : makeEcho,
+                  icon: isProcessing
+                      ? const SizedBox(
+                          width: 19,
+                          height: 19,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.graphic_eq),
+                  label: Text(
+                    isProcessing
+                        ? 'PLEASE WAIT...'
+                        : 'CREATE ECHO MP3',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 17,
                     ),
                   ),
                 ),
+              ),
 
-                const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: outputPath == null ? null : shareAudio,
-                    icon: const Icon(Icons.share),
-                    label: const Text('SHARE ECHO MP3'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF173D75),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.all(16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: outputPath == null ? null : shareEcho,
+                  icon: const Icon(Icons.share),
+                  label: const Text('SHARE ECHO MP3'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF17633F),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 15,
                     ),
                   ),
                 ),
+              ),
 
-                const SizedBox(height: 20),
+              const SizedBox(height: 25),
 
-                const Text(
-                  'Developer: IDRISH',
-                  style: TextStyle(
-                    color: Color(0xFFFFD76A),
-                    letterSpacing: 1.5,
-                  ),
+              const Text(
+                'NAAT • AUDIO • DIGITAL DELAY',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  letterSpacing: 1,
                 ),
-              ],
-            ),
+              ),
+
+              const SizedBox(height: 5),
+
+              const Text(
+                'Developer: IDRISH',
+                style: TextStyle(
+                  color: Colors.amber,
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ),
         ),
       ),
