@@ -37,4 +37,18 @@ class AudioEngine {
       {'value': value},
     );
   }
+
+  Future<void> setAncEnabled(bool enabled) async {
+    await _channel.invokeMethod<void>(
+      'setAncEnabled',
+      {'enabled': enabled},
+    );
+  }
+
+  Future<void> setAncLevel(double value) async {
+    await _channel.invokeMethod<void>(
+      'setAncLevel',
+      {'value': value},
+    );
+  }
 }
