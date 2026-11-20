@@ -10,7 +10,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   file_picker: ^10.3.7
+  just_audio: ^0.10.6
+  ffmpeg_kit_flutter_new_audio: ^2.5.8
+  path_provider: ^2.1.6
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:
