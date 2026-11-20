@@ -2,154 +2,316 @@
 import 'package:flutter/material.dart';
 import 'audio_engine.dart';
 
-void main() => runApp(const ShairERasoolApp());
+void main() {
+  runApp(const SayarApp());
+}
 
-const deepGreen = Color(0xFF064D25);
-const brightGreen = Color(0xFF168A36);
-const gold = Color(0xFFFFD54F);
-
-class ShairERasoolApp extends StatelessWidget {
-  const ShairERasoolApp({super.key});
+class SayarApp extends StatelessWidget {
+  const SayarApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'SHAIR-E-RASOOL DD-8',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: brightGreen,
-          brightness: Brightness.dark,
-        ),
-        scaffoldBackgroundColor: deepGreen,
-        useMaterial3: true,
-      ),
-      home: const HomePage(),
+      title: 'SAYAR-E-RASOOL DD-8',
+      theme: ThemeData.dark(),
+      home: const DelayScreen(),
     );
   }
 }
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+class DelayScreen extends StatefulWidget {
+  const DelayScreen({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<DelayScreen> createState() => _DelayScreenState();
 }
 
-class _HomePageState extends State<HomePage> {
-  final AudioEngine audioEngine = AudioEngine();
-
-  double eLevel = 5;
-  double feedback = 4;
-  double delayTime = 5;
+class _DelayScreenState extends State<DelayScreen> {
+  final AudioEngine audio = AudioEngine();
 
   bool delayOn = false;
-  bool pingPong = false;
-  bool fxOn = true;
-  bool lock = false;
   bool busy = false;
+  bool ancOn = false;
+  bool pingPong = false;
+  bool fxOn = false;
+  bool holdOn = false;
+  bool modulate = true;
 
-  String mode = 'MODULATE';
-  int delayMs = 200;
+  double effectLevel = 5;
+  double feedback = 4;
+  double delayTime = 200;
+  double ancLevel = 7;
 
-  void notice(String msg) {
-    if (!mounted) return;
+  String selectedMode = 'MODULATE';
+
+  int get delayMilliseconds => delayTime.round();
+
+  Future<void> toggleDelay() async {
+    if (busy) return;
+
+    setState(() => busy = true);
+
+    try {
+      if (!delayOn) {
+        await audio.setDelay(delayMilliseconds);
+        await audio.setFeedback(feedback / 10);
+        await audio.setEffectLevel(effectLevel / 10);
+
+        final started = await audio.start();
+
+        if (!mounted) return;
+        setState(() => delayOn = started);
+
+        if (!started) {
+          showMessage('Mic start nahi hua. Permission check karein.');
+        }
+      } else {
+        await audio.stop();
+        if (!mounted) return;
+        setState(() => delayOn = false);
+      }
+    } catch (e) {
+      showMessage('Audio error: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  void showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 2),
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> updateDelay(double value) async {
+    setState(() => delayTime = value);
+    if (delayOn) {
+      await audio.setDelay(delayMilliseconds);
+    }
+  }
+
+  Future<void> updateFeedback(double value) async {
+    setState(() => feedback = value);
+    if (delayOn) {
+      await audio.setFeedback(value / 10);
+    }
+  }
+
+  Future<void> updateEffect(double value) async {
+    setState(() => effectLevel = value);
+    if (delayOn) {
+      await audio.setEffectLevel(value / 10);
+    }
+  }
+
+  void resetControls() {
+    setState(() {
+      effectLevel = 5;
+      feedback = 4;
+      delayTime = 200;
+      ancLevel = 7;
+      ancOn = false;
+      pingPong = false;
+      fxOn = false;
+      holdOn = false;
+      modulate = true;
+      selectedMode = 'MODULATE';
+    });
+
+    if (delayOn) {
+      audio.setDelay(200);
+      audio.setFeedback(0.4);
+      audio.setEffectLevel(0.5);
+    }
+  }
+
+  Widget panel({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(12),
+  }) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: const Color(0xEE101511),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFB99A42),
+          width: 1.2,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget heading(String text) {
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 1,
       ),
     );
   }
 
-  Future<void> toggleAudio() async {
-    if (busy || lock) return;
-
-    if (delayOn) {
-      setState(() => busy = true);
-      await audioEngine.stop();
-
-      if (!mounted) return;
-
-      setState(() {
-        delayOn = false;
-        busy = false;
-      });
-
-      notice('Digital Delay OFF');
-      return;
-    }
-
-    setState(() => busy = true);
-    notice('Microphone start ho raha hai...');
-
-    final success = await audioEngine.start();
-
-    if (!mounted) return;
-
-    if (success) {
-      await audioEngine.setDelay(delayMs);
-      await audioEngine.setFeedback(feedback / 10);
-      await audioEngine.setEffectLevel(eLevel / 10);
-
-      if (!mounted) return;
-
-      setState(() {
-        delayOn = true;
-        busy = false;
-      });
-
-      notice('Digital Delay ON');
-    } else {
-      setState(() => busy = false);
-      notice('Audio start nahi hua. Permission aur Android setup check karein.');
-    }
-  }
-
-  void updateDelay(int value) {
-    setState(() => delayMs = value);
-    if (delayOn) {
-      audioEngine.setDelay(value);
-    }
-  }
-
-  Widget menuButton(
-    IconData icon,
-    String title,
-    VoidCallback onTap,
+  Widget knobControl(
+    String label,
+    double value,
+    double min,
+    double max,
+    String display,
+    ValueChanged<double> onChanged,
   ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF08752D),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(
-              vertical: 14,
-              horizontal: 18,
+    return Expanded(
+      child: panel(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 5,
+          vertical: 12,
+        ),
+        child: Column(
+          children: [
+            heading(label),
+            const SizedBox(height: 8),
+            Container(
+              width: 65,
+              height: 65,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF777777),
+                    Color(0xFF111111),
+                    Color(0xFF555555),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: Border.all(
+                  color: const Color(0xFF39FF14),
+                  width: 3,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.green,
+                    blurRadius: 9,
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.circle,
+                color: Colors.white,
+                size: 10,
+              ),
             ),
-            side: const BorderSide(color: gold, width: 1.2),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: const Color(0xFF39FF14),
+                inactiveTrackColor: Colors.white24,
+                thumbColor: Colors.white,
+                overlayColor: Colors.green.withOpacity(0.2),
+                trackHeight: 3,
+              ),
+              child: Slider(
+                value: value.clamp(min, max),
+                min: min,
+                max: max,
+                onChanged: onChanged,
+              ),
+            ),
+            Text(
+              display,
+              style: const TextStyle(
+                color: Color(0xFF39FF14),
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget ledMeter(String label) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 17,
+          ),
+        ),
+        const SizedBox(height: 5),
+        ...List.generate(6, (index) {
+          return Container(
+            margin: const EdgeInsets.symmetric(vertical: 2),
+            width: 15,
+            height: 12,
+            decoration: BoxDecoration(
+              color: index < 2
+                  ? Colors.orange
+                  : index < 4
+                      ? Colors.yellow
+                      : const Color(0xFF39FF14),
+              borderRadius: BorderRadius.circular(2),
+              boxShadow: const [
+                BoxShadow(color: Colors.green, blurRadius: 4),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget actionButton(
+    String title,
+    IconData icon,
+    VoidCallback onTap, {
+    bool active = false,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          margin: const EdgeInsets.all(3),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 3),
+          decoration: BoxDecoration(
+            color: active
+                ? const Color(0xFF164D19)
+                : const Color(0xFF101512),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active
+                  ? const Color(0xFF39FF14)
+                  : const Color(0xFFB99A42),
             ),
           ),
-          onPressed: onTap,
-          icon: Icon(icon, size: 25),
-          label: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                  ),
+              Icon(icon, color: const Color(0xFF39FF14), size: 25),
+              const SizedBox(height: 5),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              const Icon(Icons.chevron_right),
             ],
           ),
         ),
@@ -157,394 +319,376 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget knob(
-    String label,
-    double value,
-    ValueChanged<double> change,
-  ) {
+  Widget ancPanel() {
     return Expanded(
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: gold,
-              fontWeight: FontWeight.bold,
+      child: panel(
+        child: Column(
+          children: [
+            heading('ANC LEVEL'),
+            const SizedBox(height: 8),
+            Text(
+              ancLevel.toStringAsFixed(1),
+              style: const TextStyle(
+                color: Color(0xFF39FF14),
+                fontSize: 23,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
-          Slider(
-            value: value,
-            min: 0,
-            max: 10,
-            divisions: 100,
-            onChanged: lock ? null : change,
-          ),
-          Text(value.toStringAsFixed(1)),
-        ],
+            Slider(
+              value: ancLevel,
+              min: 0,
+              max: 10,
+              activeColor: const Color(0xFF39FF14),
+              onChanged: (v) => setState(() => ancLevel = v),
+            ),
+            heading('ANC MODE'),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => setState(() => ancOn = true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          ancOn ? Colors.green : Colors.grey.shade800,
+                    ),
+                    child: const Text('ON'),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => setState(() => ancOn = false),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          !ancOn ? Colors.red.shade900 : Colors.grey.shade800,
+                    ),
+                    child: const Text('OFF'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   @override
   void dispose() {
-    audioEngine.stop();
+    audio.stop();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.asset(
-            'assets/images/madinah_screen_background.jpg',
+      backgroundColor: const Color(0xFF06140D),
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage(
+              'assets/images/madinah_screen_background.jpg',
+            ),
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) {
-              return Container(color: deepGreen);
-            },
+            colorFilter: ColorFilter.mode(
+              Color(0x99000000),
+              BlendMode.darken,
+            ),
           ),
-          Container(
-            color: Colors.black.withValues(alpha: 0.42),
-          ),
-          SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(10),
+            child: Column(
               children: [
                 const SizedBox(height: 8),
                 const Text(
-                  'SHAIR-E-RASOOL',
+                  'SAYAR-E-RASOOL',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 27,
+                    color: Color(0xFFFFD76A),
+                    fontSize: 29,
                     fontWeight: FontWeight.w900,
-                    color: Colors.white,
+                    letterSpacing: 2,
+                    shadows: [
+                      Shadow(color: Colors.black, blurRadius: 8),
+                    ],
                   ),
                 ),
                 const Text(
                   'DD-8 DIGITAL DELAY',
-                  textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 18,
+                    color: Color(0xFFFFD76A),
+                    fontSize: 19,
                     fontWeight: FontWeight.bold,
-                    color: gold,
+                    letterSpacing: 2,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
 
-                menuButton(
-                  Icons.mic,
-                  delayOn ? 'STOP LIVE MIC' : 'LIVE MIC',
-                  toggleAudio,
-                ),
-
-                menuButton(
-                  Icons.music_note,
-                  'FILE ECHO',
-                  () => notice('File Echo module abhi banana baaki hai.'),
-                ),
-
-                menuButton(
-                  Icons.tune,
-                  'PRESETS',
-                  () {
-                    showModalBottomSheet(
-                      context: context,
-                      builder: (_) => SafeArea(
-                        child: Wrap(
-                          children: ['Naat Soft', 'Mehfil', 'Masjid', 'Studio']
-                              .map(
-                                (s) => ListTile(
-                                  title: Text(s),
-                                  onTap: () {
-                                    Navigator.pop(context);
-                                    notice('$s preset selected');
-                                  },
+                panel(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      ledMeter('IN'),
+                      Expanded(
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.black,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.green.shade900),
+                          ),
+                          child: Column(
+                            children: [
+                              const Text(
+                                'DELAY TIME',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                              )
-                              .toList(),
+                              ),
+                              Text(
+                                '$delayMilliseconds',
+                                style: const TextStyle(
+                                  color: Color(0xFF39FF14),
+                                  fontSize: 43,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 3,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.green,
+                                      blurRadius: 12,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Text(
+                                'milliseconds',
+                                style: TextStyle(color: Colors.greenAccent),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    );
-                  },
-                ),
-
-                menuButton(
-                  Icons.library_music,
-                  'NAAT LYRICS',
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const LyricsPage(),
-                      ),
-                    );
-                  },
-                ),
-
-                menuButton(
-                  Icons.settings,
-                  'SETTINGS',
-                  () {
-                    showAboutDialog(
-                      context: context,
-                      applicationName: 'SHAIR-E-RASOOL DD-8',
-                      applicationVersion: '1.0.0',
-                      children: const [
-                        Text('Developer: IDRISH'),
-                        Text('Native Audio Engine'),
-                      ],
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 12),
-
-                Card(
-                  color: const Color(0xE6003015),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    side: const BorderSide(color: gold),
+                      ledMeter('OUT'),
+                    ],
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'DIGITAL DELAY CONSOLE',
+                ),
+
+                const SizedBox(height: 10),
+
+                Row(
+                  children: [
+                    knobControl(
+                      'E.LEVEL',
+                      effectLevel,
+                      0,
+                      10,
+                      effectLevel.toStringAsFixed(1),
+                      updateEffect,
+                    ),
+                    const SizedBox(width: 5),
+                    knobControl(
+                      'F.BACK',
+                      feedback,
+                      0,
+                      10,
+                      feedback.toStringAsFixed(1),
+                      updateFeedback,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                Row(
+                  children: [
+                    knobControl(
+                      'D.TIME',
+                      delayTime,
+                      50,
+                      3200,
+                      '${delayMilliseconds}ms',
+                      updateDelay,
+                    ),
+                    const SizedBox(width: 5),
+                    ancPanel(),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
+                Row(
+                  children: [
+                    actionButton(
+                      'TAP TEMPO',
+                      Icons.music_note,
+                      () => showMessage('Tap Tempo selected'),
+                    ),
+                    actionButton(
+                      'HOLD',
+                      Icons.pause,
+                      () => setState(() => holdOn = !holdOn),
+                      active: holdOn,
+                    ),
+                    actionButton(
+                      'PING-PONG',
+                      Icons.sync,
+                      () => setState(() => pingPong = !pingPong),
+                      active: pingPong,
+                    ),
+                    actionButton(
+                      'FX',
+                      Icons.graphic_eq,
+                      () => setState(() => fxOn = !fxOn),
+                      active: fxOn,
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                panel(
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'MODE',
                           style: TextStyle(
-                            color: gold,
+                            color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 18,
                           ),
                         ),
+                      ),
+                      ChoiceChip(
+                        label: const Text('MODULATE'),
+                        selected: selectedMode == 'MODULATE',
+                        selectedColor: Colors.green,
+                        onSelected: (_) => setState(() {
+                          selectedMode = 'MODULATE';
+                          modulate = true;
+                        }),
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('ANALOG'),
+                        selected: selectedMode == 'ANALOG',
+                        selectedColor: Colors.green,
+                        onSelected: (_) => setState(() {
+                          selectedMode = 'ANALOG';
+                          modulate = false;
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
 
-                        const SizedBox(height: 10),
+                const SizedBox(height: 10),
 
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: const [
-                            Meter(label: 'IN'),
-                            Meter(label: 'OUT'),
-                            Meter(label: 'CHECK'),
-                          ],
+                GestureDetector(
+                  onTap: toggleDelay,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 19),
+                    decoration: BoxDecoration(
+                      color: delayOn
+                          ? const Color(0xFF174F18)
+                          : const Color(0xFF101510),
+                      borderRadius: BorderRadius.circular(45),
+                      border: Border.all(
+                        color: const Color(0xFF39FF14),
+                        width: 2,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.green,
+                          blurRadius: 13,
                         ),
-
-                        const SizedBox(height: 12),
-
-                        Row(
-                          children: [
-                            knob('E.LEVEL', eLevel, (v) {
-                              setState(() => eLevel = v);
-                              if (delayOn) {
-                                audioEngine.setEffectLevel(v / 10);
-                              }
-                            }),
-                            knob('F.BACK', feedback, (v) {
-                              setState(() => feedback = v);
-                              if (delayOn) {
-                                audioEngine.setFeedback(v / 10);
-                              }
-                            }),
-                            knob('D.TIME', delayTime, (v) {
-                              setState(() => delayTime = v);
-                              if (delayOn) {
-                                updateDelay(
-                                  (50 + v * 315).round(),
-                                );
-                              }
-                            }),
-                          ],
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          delayOn ? Icons.power_settings_new : Icons.power,
+                          color: Colors.white,
+                          size: 28,
                         ),
-
-                        Wrap(
-                          spacing: 8,
-                          children: [50, 200, 800, 3200].map((v) {
-                            return ChoiceChip(
-                              label: Text('${v}ms'),
-                              selected: delayMs == v,
-                              onSelected: lock
-                                  ? null
-                                  : (_) => updateDelay(v),
-                              selectedColor: brightGreen,
-                              backgroundColor: const Color(0xFF174A2B),
-                              labelStyle: const TextStyle(
-                                color: Colors.white,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(
-                              value: 'MODULATE',
-                              label: Text('MODULATE'),
-                            ),
-                            ButtonSegment(
-                              value: 'ANALOG',
-                              label: Text('ANALOG'),
-                            ),
-                          ],
-                          selected: {mode},
-                          onSelectionChanged: lock
-                              ? null
-                              : (s) => setState(() => mode = s.first),
-                        ),
-
-                        SwitchListTile(
-                          title: const Text('PING-PONG'),
-                          value: pingPong,
-                          onChanged: lock
-                              ? null
-                              : (v) => setState(() => pingPong = v),
-                        ),
-
-                        SwitchListTile(
-                          title: const Text('FX'),
-                          value: fxOn,
-                          onChanged: lock
-                              ? null
-                              : (v) => setState(() => fxOn = v),
-                        ),
-
+                        const SizedBox(width: 10),
                         Text(
-                          'DELAY: $delayMs ms   •   BPM: ${(60000 / delayMs).round()}',
+                          busy
+                              ? 'PLEASE WAIT...'
+                              : delayOn
+                                  ? 'DIGITAL DELAY ON'
+                                  : 'DIGITAL DELAY OFF',
                           style: const TextStyle(
-                            color: gold,
+                            color: Colors.white,
+                            fontSize: 19,
                             fontWeight: FontWeight.bold,
-                          ),
-                        ),
-
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: lock
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          eLevel = 5;
-                                          feedback = 4;
-                                          delayTime = 5;
-                                          pingPong = false;
-                                          fxOn = true;
-                                        });
-                                        updateDelay(200);
-                                        if (delayOn) {
-                                          audioEngine.setFeedback(0.4);
-                                          audioEngine.setEffectLevel(0.5);
-                                        }
-                                      },
-                                child: const Text('RESET'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  setState(() => lock = !lock);
-                                },
-                                child: Text(lock ? 'UNLOCK' : 'LOCK'),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 10),
-
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: delayOn
-                                  ? Colors.red.shade800
-                                  : brightGreen,
-                              padding: const EdgeInsets.all(18),
-                            ),
-                            onPressed: busy || lock ? null : toggleAudio,
-                            child: Text(
-                              busy
-                                  ? 'PLEASE WAIT...'
-                                  : delayOn
-                                      ? 'DIGITAL DELAY ON'
-                                      : 'DIGITAL DELAY OFF',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const Padding(
-                          padding: EdgeInsets.only(top: 10),
-                          child: Text(
-                            'Developer: IDRISH',
-                            style: TextStyle(color: Colors.white70),
                           ),
                         ),
                       ],
                     ),
                   ),
                 ),
+
+                const SizedBox(height: 10),
+
+                Row(
+                  children: [
+                    actionButton(
+                      'LIVE MIC',
+                      Icons.mic,
+                      toggleDelay,
+                      active: delayOn,
+                    ),
+                    actionButton(
+                      'FILE ECHO',
+                      Icons.music_note,
+                      () => showMessage('File Echo abhi implement karna hai'),
+                    ),
+                    actionButton(
+                      'PRESETS',
+                      Icons.tune,
+                      () => showMessage('Presets section'),
+                    ),
+                    actionButton(
+                      'NAAT LYRICS',
+                      Icons.menu_book,
+                      () => showMessage('Naat Lyrics section'),
+                    ),
+                    actionButton(
+                      'SETTINGS',
+                      Icons.settings,
+                      () => showMessage('Settings section'),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
+                TextButton.icon(
+                  onPressed: resetControls,
+                  icon: const Icon(Icons.restart_alt, color: Colors.amber),
+                  label: const Text(
+                    'RESET CONTROLS',
+                    style: TextStyle(color: Colors.amber),
+                  ),
+                ),
+
+                const Text(
+                  'MADE FOR NAAT & ISLAMIC AUDIO',
+                  style: TextStyle(
+                    color: Color(0xFFFFD76A),
+                    fontSize: 11,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class Meter extends StatelessWidget {
-  final String label;
-
-  const Meter({super.key, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: gold,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Container(
-          width: 58,
-          height: 13,
-          decoration: BoxDecoration(
-            color: Colors.greenAccent,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: const [
-              BoxShadow(color: Colors.green, blurRadius: 6),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class LyricsPage extends StatelessWidget {
-  const LyricsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('NAAT LYRICS')),
-      body: const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Yahan apni Naat lyrics add karne ke liye section tayyar hai.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 18),
           ),
         ),
       ),
