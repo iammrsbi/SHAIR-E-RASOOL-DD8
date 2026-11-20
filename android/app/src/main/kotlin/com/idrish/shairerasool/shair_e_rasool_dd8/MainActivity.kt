@@ -14,6 +14,7 @@ class MainActivity : FlutterActivity() {
 
     private val channelName = "com.idrish.shairerasool/audio"
     private val requestMicCode = 1001
+
     private var pendingResult: MethodChannel.Result? = null
     private var audioEngine: AudioEngine? = null
 
@@ -26,6 +27,7 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
 
             when (call.method) {
+
                 "start" -> {
                     if (ContextCompat.checkSelfPermission(
                             this,
@@ -33,6 +35,7 @@ class MainActivity : FlutterActivity() {
                         ) != PackageManager.PERMISSION_GRANTED
                     ) {
                         pendingResult = result
+
                         ActivityCompat.requestPermissions(
                             this,
                             arrayOf(Manifest.permission.RECORD_AUDIO),
@@ -50,20 +53,42 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "setDelay" -> {
-                    val value = call.argument<Int>("milliseconds") ?: 300
+                    val value =
+                        call.argument<Int>("milliseconds") ?: 300
+
                     audioEngine?.setDelay(value)
                     result.success(true)
                 }
 
                 "setFeedback" -> {
-                    val value = call.argument<Double>("value") ?: 0.35
-                    audioEngine?.setFeedback(value.toFloat())
+                    val value =
+                        call.argument<Number>("value")?.toFloat() ?: 0.35f
+
+                    audioEngine?.setFeedback(value)
                     result.success(true)
                 }
 
                 "setEffectLevel" -> {
-                    val value = call.argument<Double>("value") ?: 0.5
-                    audioEngine?.setEffectLevel(value.toFloat())
+                    val value =
+                        call.argument<Number>("value")?.toFloat() ?: 0.5f
+
+                    audioEngine?.setEffectLevel(value)
+                    result.success(true)
+                }
+
+                "setAncEnabled" -> {
+                    val enabled =
+                        call.argument<Boolean>("enabled") ?: false
+
+                    audioEngine?.setAncEnabled(enabled)
+                    result.success(true)
+                }
+
+                "setAncLevel" -> {
+                    val value =
+                        call.argument<Number>("value")?.toFloat() ?: 5f
+
+                    audioEngine?.setAncLevel(value)
                     result.success(true)
                 }
 
@@ -82,7 +107,11 @@ class MainActivity : FlutterActivity() {
                 result.success(true)
             } else {
                 engine.stop()
-                result.error("AUDIO_START_FAILED", "Audio engine could not start", null)
+                result.error(
+                    "AUDIO_START_FAILED",
+                    "Audio engine could not start",
+                    null
+                )
             }
         } catch (e: Exception) {
             result.error("AUDIO_ERROR", e.message, null)
@@ -94,7 +123,11 @@ class MainActivity : FlutterActivity() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
 
         if (requestCode == requestMicCode) {
             val result = pendingResult
@@ -103,9 +136,15 @@ class MainActivity : FlutterActivity() {
             if (grantResults.isNotEmpty() &&
                 grantResults[0] == PackageManager.PERMISSION_GRANTED
             ) {
-                if (result != null) startAudio(result)
+                if (result != null) {
+                    startAudio(result)
+                }
             } else {
-                result?.error("MIC_PERMISSION_DENIED", "Microphone permission denied", null)
+                result?.error(
+                    "MIC_PERMISSION_DENIED",
+                    "Microphone permission denied",
+                    null
+                )
             }
         }
     }
