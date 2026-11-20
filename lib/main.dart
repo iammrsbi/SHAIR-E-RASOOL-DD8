@@ -57,6 +57,8 @@ class _DelayScreenState extends State<DelayScreen> {
         await audio.setDelay(delayMilliseconds);
         await audio.setFeedback(feedback / 10);
         await audio.setEffectLevel(effectLevel / 10);
+        await audio.setAncEnabled(ancOn);
+        await audio.setAncLevel(ancLevel);
 
         final started = await audio.start();
 
@@ -68,17 +70,22 @@ class _DelayScreenState extends State<DelayScreen> {
         }
       } else {
         await audio.stop();
+
         if (!mounted) return;
         setState(() => delayOn = false);
       }
     } catch (e) {
       showMessage('Audio error: $e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
   }
 
   void showMessage(String message) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -86,6 +93,7 @@ class _DelayScreenState extends State<DelayScreen> {
 
   Future<void> updateDelay(double value) async {
     setState(() => delayTime = value);
+
     if (delayOn) {
       await audio.setDelay(delayMilliseconds);
     }
@@ -93,6 +101,7 @@ class _DelayScreenState extends State<DelayScreen> {
 
   Future<void> updateFeedback(double value) async {
     setState(() => feedback = value);
+
     if (delayOn) {
       await audio.setFeedback(value / 10);
     }
@@ -100,8 +109,33 @@ class _DelayScreenState extends State<DelayScreen> {
 
   Future<void> updateEffect(double value) async {
     setState(() => effectLevel = value);
+
     if (delayOn) {
       await audio.setEffectLevel(value / 10);
+    }
+  }
+
+  Future<void> updateAncEnabled(bool enabled) async {
+    setState(() => ancOn = enabled);
+
+    if (delayOn) {
+      try {
+        await audio.setAncEnabled(enabled);
+      } catch (e) {
+        showMessage('ANC error: $e');
+      }
+    }
+  }
+
+  Future<void> updateAncLevel(double value) async {
+    setState(() => ancLevel = value);
+
+    if (delayOn) {
+      try {
+        await audio.setAncLevel(value);
+      } catch (e) {
+        showMessage('ANC Level error: $e');
+      }
     }
   }
 
@@ -123,6 +157,8 @@ class _DelayScreenState extends State<DelayScreen> {
       audio.setDelay(200);
       audio.setFeedback(0.4);
       audio.setEffectLevel(0.5);
+      audio.setAncEnabled(false);
+      audio.setAncLevel(7);
     }
   }
 
@@ -287,7 +323,10 @@ class _DelayScreenState extends State<DelayScreen> {
         onTap: onTap,
         child: Container(
           margin: const EdgeInsets.all(3),
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 3),
+          padding: const EdgeInsets.symmetric(
+            vertical: 14,
+            horizontal: 3,
+          ),
           decoration: BoxDecoration(
             color: active
                 ? const Color(0xFF164D19)
@@ -339,7 +378,7 @@ class _DelayScreenState extends State<DelayScreen> {
               min: 0,
               max: 10,
               activeColor: const Color(0xFF39FF14),
-              onChanged: (v) => setState(() => ancLevel = v),
+              onChanged: updateAncLevel,
             ),
             heading('ANC MODE'),
             const SizedBox(height: 8),
@@ -347,7 +386,7 @@ class _DelayScreenState extends State<DelayScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => setState(() => ancOn = true),
+                    onPressed: () => updateAncEnabled(true),
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
                           ancOn ? Colors.green : Colors.grey.shade800,
@@ -358,7 +397,7 @@ class _DelayScreenState extends State<DelayScreen> {
                 const SizedBox(width: 5),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => setState(() => ancOn = false),
+                    onPressed: () => updateAncEnabled(false),
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
                           !ancOn ? Colors.red.shade900 : Colors.grey.shade800,
@@ -502,7 +541,9 @@ class _DelayScreenState extends State<DelayScreen> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 7),
+
                 Row(
                   children: [
                     knobControl(
