@@ -1,3 +1,4 @@
+
 name: shair_e_rasool_dd8
 description: SHAIR-E-RASOOL DD-8 Digital Delay app
 publish_to: 'none'
@@ -14,9 +15,15 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
-    - assets/app_icon_concept.png
-    - assets/madinah_screen_background.jpg
+    - assets/images/
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/app_icon_concept.png"
+  min_sdk_android: 21
