@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'audio_engine.dart';
+import 'file_echo.dart';
 
 void main() {
   runApp(const SayarApp());
@@ -46,6 +47,20 @@ class _DelayScreenState extends State<DelayScreen> {
   String selectedMode = 'MODULATE';
 
   int get delayMilliseconds => delayTime.round();
+
+  Future<void> openFileEcho() async {
+    if (delayOn) {
+      showMessage('File Echo use karne se pehle Live Mic OFF karein.');
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const FileEchoScreen(),
+      ),
+    );
+  }
 
   Future<void> toggleDelay() async {
     if (busy) return;
@@ -629,7 +644,7 @@ class _DelayScreenState extends State<DelayScreen> {
                 const SizedBox(height: 10),
 
                 GestureDetector(
-                  onTap: toggleDelay,
+                  onTap: busy ? null : toggleDelay,
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 19),
@@ -688,7 +703,7 @@ class _DelayScreenState extends State<DelayScreen> {
                     actionButton(
                       'FILE ECHO',
                       Icons.music_note,
-                      () => showMessage('File Echo abhi implement karna hai'),
+                      openFileEcho,
                     ),
                     actionButton(
                       'PRESETS',
